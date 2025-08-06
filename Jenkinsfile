@@ -17,25 +17,39 @@ pipeline {
         }
 
         stage('Build & Deploy') {
-            steps {
-                script {
-                    openshift.withCluster() {
-                        openshift.withProject(env.PROJECT) {
-                            echo "🛠️ 2. Build & Deploy"
+    steps {
+        script {
+            openshift.withCluster() {
+                openshift.withProject(env.PROJECT) {
+                    echo "🛠️ 2. 构建并部署应用"
 
-                            openshift.newApp("nodejs:18~https://github.com/yourusername/simple-node-app.git", "--name=${APP_NAME}")
-                                .narrow()
+                    def appName = env.APP_NAME
+                    def repoUrl = "https://github.com/IvanMok510/newapp-.git"
 
-                            openshift.startBuild("${APP_NAME}").narrow()
+                    // 检查 BuildConfig 是否存在
+                    def bc = openshift.selector('bc', appName).object()
+                    if (!bc) {
+                        echo "🔧 创建新应用..."
+                        // ✅ 使用本地镜像流：nodejs:18
+                        openshift.newApp("nodejs:18~${repoUrl}", "--name=${appName}")
+                    } else {
+                        echo "🔁 应用已存在，跳过创建"
+                    }
 
-                            openshift.poll {
-                                return openshift.selector("bc/${APP_NAME}").object().status.phase == "Complete"
-                            }
-                        }
+                    // 重新构建
+                    echo "🚀 开始构建..."
+                    def build = openshift.startBuild(appName)
+                    
+                    // 等待构建完成
+                    openshift.poll {
+                        def latestBuild = openshift.selector('bc', appName).object().status.lastVersion
+                        return build.object().metadata.name == "${appName}-${latestBuild}"
                     }
                 }
             }
         }
+    }
+}
     }
 
     post {
